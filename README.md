@@ -16,4 +16,4 @@ This repository contains the following files:
 
 ## Diagram
 This is a diagram of the architecture that will be created.
-![Diagram of the architecture](Web App Diagram.png)
+![text](https://github.com/HasanDevOps2003/Deploy-web-app-using-CloudFormation/blob/create-readme/Web%20App%20Diagram.png)
