@@ -1,0 +1,1 @@
+aws cloudformation update-stack --stack-name project2 --template-body file://project2.yml  --parameters file://parameters.json --capabilities "CAPABILITY_IAM" "CAPABILITY_NAMED_IAM" --region=us-west-2
