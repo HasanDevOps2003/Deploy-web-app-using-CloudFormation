@@ -13,3 +13,7 @@ This repository contains the following files:
 - [main.yml](https://github.com/HasanDevOps2003/Deploy-web-app-using-CloudFormation/blob/create-readme/main.yml) - Configuration file for the CloudFormation stack
 - [parameters.json](https://github.com/HasanDevOps2003/Deploy-web-app-using-CloudFormation/blob/create-readme/parameters.json) - Contains the parameters used in the configuration file
 - [update.bat](https://github.com/HasanDevOps2003/Deploy-web-app-using-CloudFormation/blob/create-readme/update.bat) - A script which updates the CloudFormation stack
+
+## Diagram
+This is a diagram of the architecture that will be created.
+![Diagram of the architecture](Web App Diagram.png)
