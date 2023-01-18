@@ -32,7 +32,14 @@ Parameters:
         Type: String
         Default: 10.0.3.0/24
     
+    InstanceType:
+        Description: "The EC2 instance type of general purpose"
+        Type: String
+        AllowedValues: [t2.medium,t3.medium]
 
+    AMI:
+      Description: AMI to use for our base image
+      Type: AWS::EC2::Image::Id
 
 Resources:
     # Creates VPC to host Web App
@@ -196,7 +203,165 @@ Resources:
             RouteTableId: !Ref PrivateRouteTable2
             SubnetId: !Ref PrivateSubnet2
     # Creates IAM role for instances
-
+    S3ReadOnlyEC2:
+        Type: AWS::IAM::Role
+        Properties:
+            RoleName: 
+                !Sub ${EnvironmentName}-Role
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                -   Effect: Allow
+                    Principal:
+                        Service:
+                        - ec2.amazonaws.com
+                    Action:
+                    - sts:AssumeRole
+            Path: "/"
+    # Creates policy for IAM role for instances
+    RolePolicies:
+        Type: AWS::IAM::Policy
+        Properties:
+            PolicyName: AmazonS3ReadOnlyAccess
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                - 
+                    Effect: Allow
+                    Action: 
+                    -   s3:Get*
+                    -   s3:List*
+                    Resource: 
+                    -   arn:aws:s3:::udacity-demo-111
+                    -   arn:aws:s3:::udacity-demo-111/*
+            Roles:
+            -   Ref: S3ReadOnlyEC2
+    # Creates instance profile for instances
+    ProfileWithRolesForOurApp:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+            Path: "/"
+            Roles:
+            - Ref: S3ReadOnlyEC2
+    # Creates security group for load balancer
+    LBSecGroup:
+            Type: AWS::EC2::SecurityGroup
+            Properties:
+                GroupDescription: Allow http traffic to and from load balancer
+                VpcId: !Ref VPC
+                SecurityGroupIngress:
+                -   IpProtocol: tcp
+                    FromPort: 80
+                    ToPort: 80
+                    CidrIp: 0.0.0.0/0
+                SecurityGroupEgress:
+                -   IpProtocol: tcp
+                    FromPort: 80
+                    ToPort: 80
+                    CidrIp: 0.0.0.0/0
+    # Creates security group for web server instances
+    WebServerSecGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Allow http and ssh to our load balancer
+            VpcId: !Ref VPC
+            SecurityGroupIngress:
+            -   IpProtocol: tcp
+                FromPort: 80
+                ToPort: 80
+                CidrIp: 0.0.0.0/0
+            -   IpProtocol: tcp
+                FromPort: 22
+                ToPort: 22
+                CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+            -   IpProtocol: tcp
+                FromPort: 0
+                ToPort: 65535
+                CidrIp: 0.0.0.0/0
+    # Creates launch configuration for web app
+    WebAppLaunchConfig: 
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties:
+            UserData:
+                Fn::Base64: !Sub |
+                    #!/bin/bash
+                    apt-get update -y
+                    apt-get install unzip awscli -y
+                    apt-get install apache2 -y
+                    systemctl start apache2.service
+                    cd /var/www/html
+                    aws s3 cp s3://udacity-demo-111/udacity.zip .
+                    unzip -o udacity.zip
+                    
+            ImageId: !Ref AMI 
+            IamInstanceProfile: !Ref ProfileWithRolesForOurApp
+            SecurityGroups:
+            -   Ref: WebServerSecGroup
+            InstanceType: !Ref 'InstanceType'
+            BlockDeviceMappings:
+            -   DeviceName: "/dev/sdk"
+                Ebs:
+                    VolumeSize: '10'
+    # Creates target group for the load balancer
+    WebAppTargetGroup:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            HealthCheckIntervalSeconds: 10
+            HealthCheckPath: /
+            HealthCheckProtocol: HTTP
+            HealthCheckTimeoutSeconds: 8
+            HealthyThresholdCount: 2
+            Port: 80
+            Protocol: HTTP
+            UnhealthyThresholdCount: 5
+            VpcId: !Ref VPC
+    # Creates web app auto scaling group
+    WebAppGroup:
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties:
+            VPCZoneIdentifier:  
+            - !Ref PrivateSubnet1
+            - !Ref PrivateSubnet2 
+            LaunchConfigurationName:
+                Ref: WebAppLaunchConfig
+            MinSize: '4'
+            MaxSize: '6'
+            TargetGroupARNs:
+            -   Ref: WebAppTargetGroup
+    # Creates web app load balancer
+    WebAppLB:
+        Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+        Properties:
+            SecurityGroups:
+            - Ref: LBSecGroup
+            Subnets:
+            - !Ref PublicSubnet1
+            - !Ref PublicSubnet2
+    # Creates listener for web app load balancer
+    Listener:
+        Type: AWS::ElasticLoadBalancingV2::Listener
+        Properties:
+            DefaultActions:
+            -   Type: forward
+                TargetGroupArn:
+                    Ref: WebAppTargetGroup
+            LoadBalancerArn:
+                Ref: WebAppLB
+            Port: 80
+            Protocol: HTTP
+    # Creates listener rule for ALB
+    ALBListenerRule:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties:
+            Actions:
+            -   Type: forward
+                TargetGroupArn: !Ref 'WebAppTargetGroup'
+            Conditions:
+            -   Field: path-pattern
+                Values: [/]
+            ListenerArn: !Ref 'Listener'
+            Priority: 1
 Outputs: 
 
     VPC: 
@@ -204,3 +369,9 @@ Outputs:
         Value: !Ref VPC
         Export:
           Name: !Sub ${EnvironmentName}-VPCID
+    
+    WebAppLoadBalancerDNSName:
+        Description: DNS name or Public URL of the Load Balancer
+        Value: !Join [ "", [ 'http://', !GetAtt WebAppLB.DNSName ]]
+        Export:
+            Name: !Sub ${EnvironmentName}-LB-DNSName
